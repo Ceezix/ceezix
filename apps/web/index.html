@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="theme-color" content="#080b12"/>
+<title>Studio IDE</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;1,400&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg0:#080b12;--bg1:#0d1117;--bg2:#111520;--bg3:#161b28;--bg4:#1c2233;
+  --border:#1a2030;--border2:#202840;
+  --neon:#00f5c4;--neon2:#00c49a;--nglow:rgba(0,245,196,.15);
+  --run:#ff4d6d;--runglow:rgba(255,77,109,.25);
+  --green:#00f5c4;--red:#ff4d6d;--yellow:#ffd166;--blue:#4cc9f0;--purple:#c77dff;
+  --text0:#e2e8f0;--text1:#94a3b8;--text2:#475569;--text3:#2d3748;
+  --mono:'JetBrains Mono',monospace;--sans:'Syne',sans-serif;
+  --nav:58px;--top:50px;
+}
+html,body,#root{height:100%;overflow:hidden;background:var(--bg0)}
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+button,input,textarea,select{font-family:inherit;outline:none;border:none}
+textarea{-webkit-user-select:text;user-select:text}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes pop{0%{transform:scale(.95);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useCallback,useMemo} = React;
+
+// ── Syntax Highlight ──────────────────────────────────────────────────────
+const JAVA_KW = ["public","class","static","void","main","String","System","out","println","print","int","double","boolean","char","float","long","short","byte","new","return","if","else","for","while","do","switch","case","break","continue","import","package","interface","extends","implements","super","this","try","catch","finally","throw","throws","null","true","false","private","protected","final","abstract","synchronized","enum","var","record"];
+const HTML_TAGS = ["html","head","body","div","span","p","h1","h2","h3","h4","h5","h6","a","img","ul","ol","li","table","tr","td","th","form","input","button","script","style","link","meta","title","section","article","nav","header","footer","main","aside","canvas","svg","path","rect","circle"];
+const CSS_PROPS = ["color","background","font-size","margin","padding","border","display","flex","grid","width","height","position","top","left","right","bottom","transform","transition","animation","opacity","z-index","overflow","cursor","text-align","border-radius","box-shadow","font-family","font-weight","line-height","gap","align-items","justify-content"];
+
+const JAVA_SNIPPETS = {
+  sout:'System.out.println("");',
+  psvm:'public static void main(String[] args) {\n    \n}',
+  fori:'for (int i = 0; i < 10; i++) {\n    \n}',
+  foreach:'for (var item : list) {\n    \n}',
+  trycatch:'try {\n    \n} catch (Exception e) {\n    e.printStackTrace();\n}',
+  cls:'public class ClassName {\n\n    public static void main(String[] args) {\n        \n    }\n}',
+};
+
+function hlJava(code) {
+  let e = code.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  e = e.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g,'<b class="s">"$1"</b>');
+  e = e.replace(/(\/\/[^\n]*)/g,'<i class="c">$1</i>');
+  e = e.replace(/(\/\*[\s\S]*?\*\/)/g,'<i class="c">$1</i>');
+  e = e.replace(/(@\w+)/g,'<b class="a">$1</b>');
+  JAVA_KW.forEach(k => e = e.replace(new RegExp(`\\b(${k})\\b`,'g'),'<b class="k">$1</b>'));
+  e = e.replace(/\b(\d+\.?\d*[fFdD]?)\b/g,'<b class="n">$1</b>');
+  e = e.replace(/\b([A-Z][a-zA-Z0-9_]*)\b/g,'<b class="t">$1</b>');
+  return e;
+}
+
+function hlHTML(code) {
+  let e = code.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  e = e.replace(/(&lt;\/?)([\w-]+)/g,'<b class="k">&lt;$1$2</b>');
+  e = e.replace(/(\w+)=&quot;([^&]*)&quot;/g,'<b class="a">$1</b>=<b class="s">"$2"</b>');
+  e = e.replace(/(<!--[\s\S]*?-->)/g,'<i class="c">$1</i>');
+  e = e.replace(/"([^"]*)"/g,'<b class="s">"$1"</b>');
+  return e;
+}
+
+function hlCSS(code) {
+  let e = code.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  e = e.replace(/(\/\*[\s\S]*?\*\/)/g,'<i class="c">$1</i>');
+  e = e.replace(/([.#]?[\w-]+)\s*\{/g,'<b class="t">$1</b> {');
+  e = e.replace(/([\w-]+)\s*:/g,'<b class="k">$1</b>:');
+  e = e.replace(/:\s*([^;{}]+);/g,': <b class="s">$1</b>;');
+  e = e.replace(/#([0-9a-fA-F]{3,8})\b/g,'<b class="n">#$1</b>');
+  return e;
+}
+
+function hlJS(code) {
+  const jsKW = ["const","let","var","function","return","if","else","for","while","class","new","this","import","export","default","async","await","try","catch","finally","typeof","instanceof","null","undefined","true","false","=>"];
+  let e = code.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  e = e.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g,'<b class="s">"$1"</b>');
+  e = e.replace(/'([^'\\]*(\\.[^'\\]*)*)'/g,"<b class='s'>'$1'</b>");
+  e = e.replace(/`([^`]*)`/g,'<b class="s">`$1`</b>');
+  e = e.replace(/(\/\/[^\n]*)/g,'<i class="c">$1</i>');
+  jsKW.forEach(k => e = e.replace(new RegExp(`\\b(${k})\\b`,'g'),'<b class="k">$1</b>'));
+  e = e.replace(/\b(\d+\.?\d*)\b/g,'<b class="n">$1</b>');
+  return e;
+}
+
+function highlight(code, lang) {
+  if(lang==='java') return hlJava(code);
+  if(lang==='html') return hlHTML(code);
+  if(lang==='css') return hlCSS(code);
+  if(lang==='js'||lang==='javascript') return hlJS(code);
+  return hlJava(code);
+}
+
+// ── Java Runner ───────────────────────────────────────────────────────────
+function runJava(code) {
+  const errs = [];
+  if(!code.includes('class ')) errs.push('error: class declaration not found');
+  if(!code.match(/public\s+static\s+void\s+main/)) errs.push('error: main method not found');
+  const o=(code.match(/\{/g)||[]).length,c2=(code.match(/\}/g)||[]).length;
+  if(o!==c2) errs.push(`error: brace mismatch — ${o} open, ${c2} close`);
+  if(errs.length) return {out:[],errs,time:0};
+
+  const t0 = Date.now();
+  const out = [];
+  // for loop simulation
+  const forM = code.match(/for\s*\(\s*int\s+(\w+)\s*=\s*(-?\d+)\s*;\s*\1\s*[<>]=?\s*(-?\d+)\s*;\s*\1(\+\+|--)\s*\)\s*\{([^}]*)\}/s);
+  if(forM){
+    const [,v,s,en,,body] = forM;
+    const start=+s,end=+en;
+    const ascending=start<=end;
+    for(let i=start; ascending?i<Math.min(end,start+20):i>Math.max(end,start-20); ascending?i++:i--){
+      const b=body.replace(new RegExp(`\\b${v}\\b`,'g'),i);
+      [...b.matchAll(/System\.out\.println\("((?:[^"\\]|\\.)*)"\)/g)].forEach(m=>out.push(m[1]));
+      [...b.matchAll(/System\.out\.println\((-?\d+\.?\d*)\)/g)].forEach(m=>out.push(m[1]));
+    }
+  }
+  [...code.matchAll(/System\.out\.println\("((?:[^"\\]|\\.)*)"\)/g)].forEach(m=>out.push(m[1].replace(/\\n/g,'\n').replace(/\\t/g,'\t')));
+  [...code.matchAll(/System\.out\.println\((-?\d+\.?\d*)\)/g)].forEach(m=>out.push(m[1]));
+  [...code.matchAll(/System\.out\.println\((true|false)\)/g)].forEach(m=>out.push(m[1]));
+  [...code.matchAll(/System\.out\.print\("((?:[^"\\]|\\.)*)"\)/g)].forEach(m=>out.push(m[1]));
+  if(!out.length) out.push('[Program completed with no output]');
+  return {out, errs:[], time: Date.now()-t0};
+}
+
+// ── File Templates ────────────────────────────────────────────────────────
+const INIT_FILES = {
+  "Main.java": { lang:'java', code:`public class Main {\n\n    public static void main(String[] args) {\n        System.out.println("Hello, Studio IDE!");\n        System.out.println("One-click run ▶");\n        \n        for (int i = 1; i <= 5; i++) {\n            System.out.println("Line " + i);\n        }\n    }\n}` },
+  "index.html": { lang:'html', code:`<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8"/>\n  <meta name="viewport" content="width=device-width"/>\n  <title>My App</title>\n  <style>\n    body {\n      font-family: sans-serif;\n      background: #0d1117;\n      color: #e2e8f0;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      min-height: 100vh;\n      margin: 0;\n    }\n    .card {\n      background: #161b28;\n      padding: 32px;\n      border-radius: 16px;\n      text-align: center;\n      border: 1px solid #1a2030;\n    }\n    h1 { color: #00f5c4; margin-bottom: 8px; }\n    button {\n      background: #00f5c4;\n      color: #000;\n      border: none;\n      padding: 10px 24px;\n      border-radius: 8px;\n      font-weight: bold;\n      cursor: pointer;\n      margin-top: 16px;\n    }\n  </style>\n</head>\n<body>\n  <div class="card">\n    <h1>Live Preview ✨</h1>\n    <p>Edit this HTML and see changes instantly.</p>\n    <button onclick="alert('Hello!')">Click Me</button>\n  </div>\n</body>\n</html>` },
+  "style.css": { lang:'css', code:`/* Studio IDE — Live CSS Preview */\n\nbody {\n  font-family: 'Segoe UI', sans-serif;\n  background: linear-gradient(135deg, #0d1117, #161b28);\n  color: #e2e8f0;\n  min-height: 100vh;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  margin: 0;\n}\n\n.container {\n  padding: 40px;\n  border-radius: 20px;\n  background: rgba(255,255,255,.05);\n  border: 1px solid rgba(0,245,196,.2);\n  box-shadow: 0 20px 60px rgba(0,0,0,.5);\n  max-width: 400px;\n  text-align: center;\n}\n\nh1 {\n  color: #00f5c4;\n  font-size: 2rem;\n  margin-bottom: 12px;\n}\n\np {\n  color: #94a3b8;\n  line-height: 1.7;\n}` },
+  "app.js": { lang:'js', code:`// Live JavaScript Preview\n\nconst greet = (name) => {\n  return \`Hello, \${name}! Welcome to Studio IDE.\`;\n};\n\nconst nums = [1, 2, 3, 4, 5];\nconst doubled = nums.map(n => n * 2);\n\nconsole.log(greet("Developer"));\nconsole.log("Doubled:", doubled);\n\n// DOM manipulation\ndocument.addEventListener('DOMContentLoaded', () => {\n  const div = document.createElement('div');\n  div.style.cssText = 'padding:20px;font-family:monospace;color:#00f5c4;font-size:18px';\n  div.textContent = greet("World");\n  document.body.appendChild(div);\n});` },
+};
+
+const THEMES = {
+  Abyss:  {bg0:'#080b12',bg1:'#0d1117',bg2:'#111520',acc:'#00f5c4',run:'#ff4d6d',kw:'#00f5c4',str:'#69ff47',num:'#4cc9f0',cmt:'#2d3748',cls:'#c77dff',ann:'#ffd166'},
+  Neon:   {bg0:'#0a0012',bg1:'#0f0018',bg2:'#140022',acc:'#ff00ff',run:'#00ffff',kw:'#ff00ff',str:'#00ff99',num:'#ffff00',cmt:'#330033',cls:'#00ffff',ann:'#ff9900'},
+  Amber:  {bg0:'#0f0a00',bg1:'#161000',bg2:'#1e1600',acc:'#ffb300',run:'#ff5252',kw:'#ffb300',str:'#69ff47',num:'#ff7043',cmt:'#2d2000',cls:'#80deea',ann:'#ffd166'},
+  Ice:    {bg0:'#000d1a',bg1:'#001424',bg2:'#001e33',acc:'#4cc9f0',run:'#ff6b6b',kw:'#4cc9f0',str:'#c3f584',num:'#ffd166',cmt:'#1a3040',cls:'#a78bfa',ann:'#fb923c'},
+};
+
+// ── Icons ─────────────────────────────────────────────────────────────────
+const I = ({n,s=18,c='currentColor'}) => {
+  const d = {
+    code:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>,
+    files:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>,
+    preview:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>,
+    terminal:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="18" rx="2"/><polyline points="8,9 11,12 8,15"/><line x1="13" y1="15" x2="17" y2="15"/></svg>,
+    run:<svg width={s} height={s} viewBox="0 0 24 24" fill={c}><polygon points="5,3 19,12 5,21"/></svg>,
+    settings:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+    close:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    add:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+    undo:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><polyline points="9,14 4,9 9,4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
+    redo:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><polyline points="15,14 20,9 15,4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>,
+    keyboard:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>,
+    refresh:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
+    copy:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+    check:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round"><polyline points="20,6 9,17 4,12"/></svg>,
+    phone:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
+    desktop:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>,
+    java:<span style={{fontSize:s*.72,lineHeight:1}}>☕</span>,
+    html:<span style={{fontSize:s*.72,lineHeight:1,color:'#f0883e'}}>⟨⟩</span>,
+    css:<span style={{fontSize:s*.72,lineHeight:1,color:'#4cc9f0'}}>#</span>,
+    js:<span style={{fontSize:s*.72,lineHeight:1,color:'#ffd166'}}>JS</span>,
+    chevR:<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><polyline points="9,18 15,12 9,6"/></svg>,
+  };
+  return d[n]||<span>{n}</span>;
+};
+
+function getLangIcon(lang) {
+  if(lang==='java') return 'java';
+  if(lang==='html') return 'html';
+  if(lang==='css') return 'css';
+  if(lang==='js'||lang==='javascript') return 'js';
+  return 'code';
+}
+
+// ── Key Button ────────────────────────────────────────────────────────────
+const Key = ({k, onP, w, acc, dim}) => (
+  <button
+    onPointerDown={e=>{e.preventDefault();onP(k);}}
+    style={{
+      flex: w?2:1, minWidth: w?52:24, height:38,
+      background: acc?'var(--run)':dim?'var(--bg3)':'var(--bg2)',
+      color: acc?'#fff':dim?'var(--text2)':'var(--text0)',
+      borderRadius:7, fontSize: acc?11:dim?10:12.5,
+      fontFamily:'var(--mono)', fontWeight: acc?700:400,
+      border:`1px solid ${acc?'var(--run)':'var(--border2)'}`,
+      boxShadow: acc?'0 0 10px var(--runglow)':undefined,
+      display:'flex', alignItems:'center', justifyContent:'center',
+      userSelect:'none', transition:'transform .07s, background .1s',
+    }}
+  >{k}</button>
+);
+
+// ── APP ───────────────────────────────────────────────────────────────────
+function App() {
+  const [tab, setTab] = useState('editor');
+  const [files, setFiles] = useState(INIT_FILES);
+  const [activeFile, setActiveFile] = useState('Main.java');
+  const [code, setCode] = useState(INIT_FILES['Main.java'].code);
+  const [lang, setLang] = useState(INIT_FILES['Main.java'].lang);
+  const [output, setOutput] = useState([]);
+  const [errs, setErrs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [ran, setRan] = useState(false);
+  const [execTime, setExecTime] = useState(0);
+  const [showOutput, setShowOutput] = useState(false);
+  const [showKB, setShowKB] = useState(false);
+  const [acList, setAcList] = useState([]);
+  const [termHistory, setTermHistory] = useState(['$ Studio IDE Terminal v1.0','$ type help for commands']);
+  const [termInput, setTermInput] = useState('');
+  const [fontSize, setFontSize] = useState(13);
+  const [theme, setTheme] = useState('Abyss');
+  const [wordWrap, setWordWrap] = useState(true);
+  const [livePreview, setLivePreview] = useState(true);
+  const [previewMode, setPreviewMode] = useState('phone'); // phone | desktop | split
+  const [previewKey, setPreviewKey] = useState(0);
+  const [cursorLine, setCursorLine] = useState(1);
+  const [history, setHistory] = useState([INIT_FILES['Main.java'].code]);
+  const [histIdx, setHistIdx] = useState(0);
+  const [newFileName, setNewFileName] = useState('');
+  const [showNewFile, setShowNewFile] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [runFlash, setRunFlash] = useState(false);
+  const [consoleLog, setConsoleLog] = useState([]);
+
+  const taRef = useRef(null);
+  const preRef = useRef(null);
+  const iframeRef = useRef(null);
+  const termRef = useRef(null);
+  const liveTimer = useRef(null);
+
+  const th = THEMES[theme];
+
+  // Apply theme
+  useEffect(() => {
+    const r = document.documentElement.style;
+    r.setProperty('--bg0',th.bg0); r.setProperty('--bg1',th.bg1); r.setProperty('--bg2',th.bg2);
+    r.setProperty('--neon',th.acc); r.setProperty('--nglow',th.acc+'26');
+    r.setProperty('--run',th.run); r.setProperty('--runglow',th.run+'40');
+    ['kw','str','num','cmt','cls','ann'].forEach(k=>r.setProperty('--tok-'+k,th[k]));
+  },[theme]);
+
+  // Build preview HTML for iframe
+  const buildPreviewHTML = useCallback((c, l) => {
+    if(l==='html') return c;
+    if(l==='css') return `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{margin:0;padding:16px;background:#0d1117;color:#e2e8f0;font-family:sans-serif}${c}</style></head><body><div class="container"><h1>CSS Preview</h1><p>Your styles are applied here.</p></div></body></html>`;
+    if(l==='js'||l==='javascript') return `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{margin:0;padding:16px;background:#0d1117;color:#e2e8f0;font-family:monospace;font-size:13px;line-height:1.7}#console{white-space:pre-wrap}</style></head><body><div id="console"></div><script>const _log=console.log;const lines=[];console.log=(...a)=>{_log(...a);lines.push(a.join(' '));document.getElementById('console').textContent=lines.join('\\n');};try{${c}}catch(e){console.log('Error: '+e.message);}<\/script></body></html>`;
+    if(l==='java') return `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{margin:0;background:#0d1117;color:#e2e8f0;font-family:'JetBrains Mono',monospace;font-size:13px;padding:16px;line-height:1.8}.line{display:flex;gap:8px;align-items:flex-start;padding:2px 0;animation:fi .2s ease}.line::before{content:'›';color:#2d3748;flex-shrink:0}.err{color:#ff4d6d}.err::before{color:#ff4d6d;content:'✗'}@keyframes fi{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}</style></head><body><div id="out"></div><script>const r=${JSON.stringify(runJava(c))};const d=document.getElementById('out');[...r.errs,...r.out].forEach((l,i)=>{const e=document.createElement('div');e.className='line'+(r.errs.includes(l)?' err':'');e.textContent=l;d.appendChild(e);});if(!r.errs.length&&r.out.length){const s=document.createElement('div');s.style='margin-top:12px;font-size:10px;color:#2d3748';s.textContent='✓ Exited in '+r.time+'ms';d.appendChild(s);}<\/script></body></html>`;
+    return c;
+  },[]);
+
+  // Live preview update with debounce
+  useEffect(() => {
+    if(!livePreview) return;
+    clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(()=>{
+      if(iframeRef.current){
+        try{
+          const doc = iframeRef.current.contentDocument||iframeRef.current.contentWindow.document;
+          doc.open(); doc.write(buildPreviewHTML(code,lang)); doc.close();
+        }catch(_){}
+      }
+    }, 400);
+    return ()=>clearTimeout(liveTimer.current);
+  },[code, lang, livePreview]);
+
+  const syncScroll = () => {
+    if(preRef.current&&taRef.current){
+      preRef.current.scrollTop=taRef.current.scrollTop;
+      preRef.current.scrollLeft=taRef.current.scrollLeft;
+    }
+  };
+
+  const updateCursor = () => {
+    if(!taRef.current) return;
+    const v=taRef.current.value.substring(0,taRef.current.selectionStart);
+    setCursorLine(v.split('\n').length);
+  };
+
+  const pushHistory = (c) => {
+    const h=history.slice(0,histIdx+1);
+    setHistory([...h,c]); setHistIdx(h.length);
+  };
+
+  const handleChange = (e) => {
+    const v=e.target.value;
+    setCode(v); setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:v}}));
+    pushHistory(v);
+    // AC
+    const before=v.substring(0,e.target.selectionStart);
+    const wm=before.match(/[\w]+$/);
+    if(wm&&wm[0].length>=2){
+      const w=wm[0];
+      const pool=lang==='java'?[...JAVA_KW,...Object.keys(JAVA_SNIPPETS)]:lang==='html'?HTML_TAGS:lang==='css'?CSS_PROPS:['const','let','function','return','if','else','for','class'];
+      const m=pool.filter(k=>k.startsWith(w)&&k!==w).slice(0,6);
+      setAcList(m);
+    } else setAcList([]);
+    updateCursor();
+  };
+
+  const applyAC = (s) => {
+    const ta=taRef.current; if(!ta) return;
+    const before=ta.value.substring(0,ta.selectionStart);
+    const after=ta.value.substring(ta.selectionStart);
+    const wm=before.match(/[\w]+$/); if(!wm) return;
+    const insert=(lang==='java'&&JAVA_SNIPPETS[s])?JAVA_SNIPPETS[s]:s;
+    const nb=before.slice(0,-wm[0].length)+insert;
+    const nv=nb+after;
+    setCode(nv); setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:nv}}));
+    setAcList([]);
+    setTimeout(()=>{ta.selectionStart=ta.selectionEnd=nb.length;ta.focus();},0);
+  };
+
+  // ONE-CLICK RUN
+  const handleRun = useCallback(() => {
+    setRunFlash(true); setTimeout(()=>setRunFlash(false),300);
+    setRunning(true); setOutput([]); setErrs([]); setRan(false);
+    if(lang==='java'){
+      setShowOutput(true);
+      setTimeout(()=>{
+        const r=runJava(code);
+        setOutput(r.out); setErrs(r.errs); setRan(true); setRunning(false);
+        setExecTime(r.time);
+        // also update preview with output
+        setPreviewKey(k=>k+1);
+      },500);
+    } else {
+      // For HTML/CSS/JS — just refresh the preview
+      setPreviewKey(k=>k+1);
+      setRunning(false); setRan(true);
+      setTab('preview');
+    }
+  },[code,lang]);
+
+  const undo = () => {
+    if(histIdx<=0) return;
+    const ni=histIdx-1; setHistIdx(ni);
+    setCode(history[ni]); setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:history[ni]}}));
+  };
+  const redo = () => {
+    if(histIdx>=history.length-1) return;
+    const ni=histIdx+1; setHistIdx(ni);
+    setCode(history[ni]); setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:history[ni]}}));
+  };
+
+  const insertKey = (k) => {
+    const ta=taRef.current; if(!ta) return;
+    const s=ta.selectionStart, e2=ta.selectionEnd;
+    const pairs={'(':')','[':']','{':'}','"':'"',"'":"'",'<':'>'};
+    if(k==='⌫'){
+      if(s>0){const nv=code.substring(0,s-1)+code.substring(e2);setCode(nv);setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:nv}}));setTimeout(()=>{ta.selectionStart=ta.selectionEnd=s-1;},0);}
+      return;
+    }
+    let ins=k, post='';
+    if(k==='↵'||k==='↩') ins='\n';
+    if(k==='⇥') ins='    ';
+    if(pairs[k]){ins=k;post=pairs[k];}
+    const nv=code.substring(0,s)+ins+post+code.substring(e2);
+    setCode(nv); setFiles(f=>({...f,[activeFile]:{...f[activeFile],code:nv}}));
+    pushHistory(nv);
+    setTimeout(()=>{ta.selectionStart=ta.selectionEnd=s+ins.length;ta.focus();},0);
+  };
+
+  const switchFile = (fname) => {
+    setFiles(prev=>({...prev,[activeFile]:{...prev[activeFile],code}}));
+    setActiveFile(fname);
+    const f=files[fname];
+    setCode(f.code); setLang(f.lang);
+    setRan(false); setOutput([]); setErrs([]); setAcList([]);
+    setHistory([f.code]); setHistIdx(0);
+    setTab('editor');
+  };
+
+  const createFile = () => {
+    if(!newFileName.trim()) return;
+    let fn=newFileName.trim();
+    let l='java';
+    if(fn.endsWith('.html')) l='html';
+    else if(fn.endsWith('.css')) l='css';
+    else if(fn.endsWith('.js')) l='js';
+    else if(!fn.includes('.')) fn+='.java';
+    const cls=fn.replace(/\.\w+$/,'');
+    const tpl = l==='html'?`<!DOCTYPE html>\n<html>\n<head>\n  <title>${cls}</title>\n</head>\n<body>\n  <h1>${cls}</h1>\n</body>\n</html>`:l==='css'?`/* ${cls} styles */\n\nbody {\n  margin: 0;\n  padding: 16px;\n}`:l==='js'?`// ${cls}\n\nconsole.log("${cls} loaded");`:
+    `public class ${cls} {\n\n    public static void main(String[] args) {\n        System.out.println("Hello from ${cls}!");\n    }\n}`;
+    setFiles(f=>({...f,[fn]:{lang:l,code:tpl}}));
+    setShowNewFile(false); setNewFileName('');
+    setTimeout(()=>switchFile(fn),50);
+  };
+
+  const handleTermCmd = (e) => {
+    if(e.key!=='Enter') return;
+    const cmd=termInput.trim();
+    let resp='';
+    if(cmd==='clear'){setTermHistory([]);setTermInput('');return;}
+    if(cmd==='help') resp='Commands: run, javac, java, ls, pwd, clear';
+    else if(cmd==='run') {handleRun();resp='▶ Running '+activeFile;}
+    else if(cmd.startsWith('javac')||cmd.startsWith('java')) resp=errs.length?errs.join('\n'):output.join('\n')||'Run the program first.';
+    else if(cmd==='ls') resp=Object.keys(files).join('  ');
+    else if(cmd==='pwd') resp='/root/projects/studio-ide/src';
+    else resp=`bash: ${cmd}: command not found`;
+    const newH=[...termHistory,`$ ${cmd}`,resp];
+    setTermHistory(newH);
+    setTermInput('');
+    setTimeout(()=>termRef.current&&(termRef.current.scrollTop=99999),50);
+  };
+
+  const copyOutput = () => {
+    try{navigator.clipboard.writeText(output.join('\n'));}catch(_){}
+    setCopied(true); setTimeout(()=>setCopied(false),1500);
+  };
+
+  const fileKeys = Object.keys(files);
+  const lineCount = code.split('\n').length;
+  const isWebFile = ['html','css','js','javascript'].includes(lang);
+
+  // KB rows (adaptive per lang)
+  const KB_ROWS = lang==='java'
+    ? [['{','}','(',')','[',']',';','.','=','"'],[' ⇥ ','⌫','↵','//','/**/'],[' int',' void',' for',' if',' new',' sout']]
+    : lang==='html'
+    ? [['<','>','/','=',' class',' id','"',"'",'!',';'],['⇥','⌫','↵','<!--'],['div','span','p','h1','a','img','ul','li']]
+    : lang==='css'
+    ? [['{','}',':',';','.',',',' px',' %',' em','#'],['⇥','⌫','↵','/**/'],['flex','grid','margin','padding','color','background']]
+    : [['{','}','(',')','[',']','=',';','.','`'],['⇥','⌫','↵','//'],['const','let ','function ','return ','async ','await ']];
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100dvh',background:'var(--bg0)',color:'var(--text0)',overflow:'hidden',position:'relative'}}>
+      <style>{`
+        .k{color:var(--tok-kw,#00f5c4)} .s{color:var(--tok-str,#69ff47)} .n{color:var(--tok-num,#4cc9f0)} .c{color:var(--tok-cmt,#2d3748);font-style:italic} .t{color:var(--tok-cls,#c77dff)} .a{color:var(--tok-ann,#ffd166)} b,i{font-style:normal;font-weight:normal}
+        .nav-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;flex:1;padding:6px 4px 4px;background:none;color:var(--text3);font-size:9.5px;font-family:var(--sans);font-weight:600;transition:color .15s;position:relative}
+        .nav-btn.active{color:var(--neon)}
+        .nav-btn.active svg,.nav-btn.active span{filter:drop-shadow(0 0 5px var(--neon))}
+        .file-row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+        .file-row:active{background:var(--bg3)}
+        .file-row.act{background:var(--bg2)}
+        .out-line{padding:2px 0;animation:fi .2s ease}
+        .out-line::before{content:'▸ ';color:var(--text3)}
+        .err-line{color:var(--red)}
+        .err-line::before{content:'✗ ';color:var(--red)}
+        @keyframes fi{from{opacity:0;transform:translateX(-4px)}to{opacity:1}}
+        .sr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)}
+        .chip{padding:7px 14px;border-radius:8px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--text1);transition:all .1s}
+        .chip.on{background:var(--nglow);border-color:var(--neon);color:var(--neon)}
+        .tog{width:46px;height:26px;border-radius:13px;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
+        .knob{position:absolute;top:4px;width:18px;height:18px;border-radius:50%;background:white;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+        input[type=text]{background:var(--bg2);border:1px solid var(--border2);color:var(--text0);padding:9px 12px;border-radius:8px;font-size:13px;font-family:var(--mono)}
+        input[type=text]:focus{border-color:var(--neon);box-shadow:0 0 0 2px var(--nglow)}
+        .runbtn{display:flex;align-items:center;justify-content:center;gap:6px;padding:0 18px;height:36px;border-radius:10px;font-family:var(--sans);font-weight:800;font-size:13px;cursor:pointer;transition:all .15s;background:var(--run);color:#fff;border:none;box-shadow:0 0 16px var(--runglow);letter-spacing:.02em}
+        .runbtn:active{transform:scale(.95)}
+        .runbtn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+        .runbtn.flash{animation:runpop .3s ease}
+        @keyframes runpop{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+        .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:9px;font-family:var(--sans);font-weight:700}
+        .live-dot{width:7px;height:7px;border-radius:50%;background:var(--neon);animation:pulse 1.5s ease infinite;box-shadow:0 0 6px var(--neon)}
+        iframe{border:none;width:100%;height:100%;background:#fff}
+      `}</style>
+
+      {/* ── Top bar ── */}
+      <div style={{height:'var(--top)',background:'var(--bg1)',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 10px',gap:6,flexShrink:0,zIndex:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,flex:1,minWidth:0}}>
+          <div style={{width:7,height:7,borderRadius:'50%',background:'var(--neon)',boxShadow:'0 0 8px var(--neon)',flexShrink:0}}/>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:12,fontFamily:'var(--sans)',fontWeight:700,color:'var(--text0)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{activeFile}</div>
+            <div style={{fontSize:9,color:'var(--text2)',fontFamily:'var(--sans)',textTransform:'uppercase',letterSpacing:'.06em'}}>{lang} · {lineCount} lines · Ln {cursorLine}</div>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:3,alignItems:'center',flexShrink:0}}>
+          <button onPointerDown={undo} style={{background:'none',color:'var(--text2)',padding:6,borderRadius:6,display:'flex'}} title="Undo"><I n="undo" s={15}/></button>
+          <button onPointerDown={redo} style={{background:'none',color:'var(--text2)',padding:6,borderRadius:6,display:'flex'}} title="Redo"><I n="redo" s={15}/></button>
+          <button onPointerDown={()=>setShowKB(v=>!v)} style={{background:'none',color:showKB?'var(--neon)':'var(--text2)',padding:6,borderRadius:6,display:'flex'}} title="Keyboard"><I n="keyboard" s={15}/></button>
+          {/* ONE-CLICK RUN BUTTON */}
+          <button className={`runbtn${runFlash?' flash':''}`} disabled={running} onPointerDown={handleRun}>
+            {running
+              ? <svg style={{animation:'spin .5s linear infinite'}} width="13" height="13" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="white" strokeWidth="2.5" strokeDasharray="20" strokeDashoffset="5"/></svg>
+              : <I n="run" s={12} c="#fff"/>}
+            {running?'Running':'Run'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+
+        {/* EDITOR */}
+        {tab==='editor' && (
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{flex:1,display:'flex',overflow:'hidden',position:'relative'}}>
+              {/* Line numbers */}
+              <div style={{background:'var(--bg1)',borderRight:'1px solid var(--border)',padding:'12px 0',userSelect:'none',overflowY:'hidden',flexShrink:0}}>
+                {code.split('\n').map((_,i)=>(
+                  <div key={i} style={{height:fontSize*1.7,display:'flex',alignItems:'center',justifyContent:'flex-end',paddingRight:8,paddingLeft:8,fontSize:fontSize-2,color:cursorLine===i+1?'var(--neon)':'var(--text3)',fontFamily:'var(--mono)',minWidth:34}}>
+                    {i+1}
+                  </div>
+                ))}
+              </div>
+              {/* Code */}
+              <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+                <pre ref={preRef} style={{position:'absolute',top:0,left:0,right:0,bottom:0,padding:'12px 10px',fontSize,lineHeight:1.7,whiteSpace:wordWrap?'pre-wrap':'pre',overflow:'auto',pointerEvents:'none',color:'var(--text0)',fontFamily:'var(--mono)',margin:0}} dangerouslySetInnerHTML={{__html:highlight(code,lang)}}/>
+                <textarea ref={taRef} value={code} onChange={handleChange} onScroll={syncScroll} onClick={updateCursor} onKeyUp={updateCursor} spellCheck={false} autoCapitalize="off" autoCorrect="off" style={{position:'absolute',top:0,left:0,right:0,bottom:0,padding:'12px 10px',fontSize,lineHeight:1.7,fontFamily:'var(--mono)',background:'transparent',color:'transparent',caretColor:'var(--neon)',resize:'none',whiteSpace:wordWrap?'pre-wrap':'pre',overflow:'auto',zIndex:1,WebkitTextFillColor:'transparent'}}/>
+              </div>
+            </div>
+
+            {/* AC */}
+            {acList.length>0 && (
+              <div style={{background:'var(--bg1)',borderTop:'1px solid var(--border)',flexShrink:0,maxHeight:140,overflowY:'auto',animation:'slideUp .15s ease'}}>
+                <div style={{padding:'3px 12px',fontSize:9,color:'var(--text3)',fontFamily:'var(--sans)',textTransform:'uppercase',letterSpacing:'.1em',borderBottom:'1px solid var(--border)'}}>Autocomplete</div>
+                {acList.map((s,i)=>(
+                  <div key={i} onPointerDown={()=>applyAC(s)} style={{padding:'9px 14px',fontSize:12,fontFamily:'var(--mono)',borderBottom:'1px solid var(--border)',color:lang==='java'&&JAVA_SNIPPETS[s]?'var(--tok-ann)':'var(--tok-kw)',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'}}>
+                    <span>{s}</span>
+                    {lang==='java'&&JAVA_SNIPPETS[s]&&<span style={{fontSize:9,color:'var(--text3)',background:'var(--bg3)',padding:'2px 5px',borderRadius:3}}>snippet</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Output drawer */}
+            {showOutput && (
+              <div style={{background:'var(--bg1)',borderTop:`2px solid var(--border2)`,flexShrink:0,maxHeight:'38%',display:'flex',flexDirection:'column',animation:'slideUp .2s ease'}}>
+                <div style={{display:'flex',alignItems:'center',padding:'8px 12px',borderBottom:'1px solid var(--border)',gap:8}}>
+                  <div style={{width:6,height:6,borderRadius:'50%',background:running?'var(--yellow)':errs.length?'var(--red)':'var(--green)',boxShadow:`0 0 6px ${running?'var(--yellow)':errs.length?'var(--red)':'var(--green)'}`,animation:running?'pulse 1s infinite':undefined}}/>
+                  <span style={{fontSize:11,fontFamily:'var(--sans)',fontWeight:700,color:'var(--text1)',flex:1}}>
+                    {running?'Compiling…':errs.length?`${errs.length} error${errs.length>1?'s':''}`:`OK · ${execTime}ms`}
+                  </span>
+                  <button onPointerDown={copyOutput} style={{background:'none',color:'var(--text2)',display:'flex',padding:4}}><I n="copy" s={13}/></button>
+                  <button onPointerDown={()=>setShowOutput(false)} style={{background:'none',color:'var(--text2)',display:'flex',padding:4}}><I n="close" s={14}/></button>
+                </div>
+                <div style={{overflowY:'auto',padding:'8px 14px',fontSize:12.5,lineHeight:1.9,fontFamily:'var(--mono)',flex:1}}>
+                  {errs.map((e,i)=><div key={i} className="out-line err-line">{e}</div>)}
+                  {!running&&output.map((l,i)=><div key={i} className="out-line" style={{color:'var(--neon)'}}>{l}</div>)}
+                  {copied&&<div style={{color:'var(--text2)',fontSize:10,marginTop:4,fontFamily:'var(--sans)'}}>✓ Copied</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Custom keyboard */}
+            {showKB && (
+              <div style={{background:'var(--bg1)',borderTop:'1px solid var(--border)',padding:'8px 6px 10px',flexShrink:0}}>
+                {KB_ROWS.map((row,ri)=>(
+                  <div key={ri} style={{display:'flex',gap:4,marginBottom:ri<KB_ROWS.length-1?4:0}}>
+                    {row.map(k=>(
+                      <Key key={k} k={k.trim()} onP={insertKey}
+                        w={['⇥','⌫','↵','⏎','↩','/**/','<!--'].includes(k.trim())}
+                        acc={k.trim()==='↵'||k.trim()==='⏎'||k.trim()==='↩'}
+                        dim={k.trim()==='//'}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* LIVE PREVIEW */}
+        {tab==='preview' && (
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',background:'var(--bg0)'}}>
+            {/* Preview toolbar */}
+            <div style={{display:'flex',alignItems:'center',padding:'8px 12px',gap:8,background:'var(--bg1)',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+                {livePreview && <div className="live-dot"/>}
+                <span style={{fontSize:10,color:livePreview?'var(--neon)':'var(--text2)',fontFamily:'var(--sans)',fontWeight:600}}>{livePreview?'LIVE':'STATIC'}</span>
+                <span style={{fontSize:10,color:'var(--text3)',fontFamily:'var(--mono)'}}>— {activeFile}</span>
+              </div>
+              <div style={{display:'flex',gap:4}}>
+                {['phone','desktop'].map(m=>(
+                  <button key={m} onPointerDown={()=>setPreviewMode(m)} style={{padding:'4px 8px',borderRadius:6,background:previewMode===m?'var(--nglow)':'var(--bg3)',color:previewMode===m?'var(--neon)':'var(--text2)',border:`1px solid ${previewMode===m?'var(--neon)':'var(--border2)'}`,fontSize:10,fontFamily:'var(--sans)',display:'flex',alignItems:'center',gap:4}}>
+                    <I n={m} s={12} c={previewMode===m?'var(--neon)':'var(--text2)'}/>{m}
+                  </button>
+                ))}
+                <button onPointerDown={()=>setPreviewKey(k=>k+1)} style={{padding:'4px 8px',borderRadius:6,background:'var(--bg3)',color:'var(--text2)',border:'1px solid var(--border2)',display:'flex',alignItems:'center',gap:4,fontSize:10,fontFamily:'var(--sans)'}}><I n="refresh" s={12}/>Reload</button>
+              </div>
+            </div>
+
+            {/* Iframe wrapper */}
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:previewMode==='phone'?12:0,background:'var(--bg0)',overflow:'hidden'}}>
+              <div style={{
+                width: previewMode==='phone'?'min(375px,100%)':'100%',
+                height: previewMode==='phone'?'min(680px,100%)':'100%',
+                borderRadius: previewMode==='phone'?16:0,
+                overflow:'hidden',
+                border: previewMode==='phone'?'2px solid var(--border2)':'none',
+                boxShadow: previewMode==='phone'?'0 20px 60px rgba(0,0,0,.6)':undefined,
+                background:'#fff',
+                position:'relative',
+              }}>
+                {previewMode==='phone' && (
+                  <div style={{position:'absolute',top:0,left:'50%',transform:'translateX(-50%)',width:80,height:4,borderRadius:'0 0 4px 4px',background:'var(--border2)',zIndex:2}}/>
+                )}
+                <iframe
+                  ref={iframeRef}
+                  key={previewKey}
+                  sandbox="allow-scripts allow-modals"
+                  style={{border:'none',width:'100%',height:'100%',display:'block'}}
+                  srcDoc={buildPreviewHTML(code,lang)}
+                />
+              </div>
+            </div>
+
+            {/* Preview status */}
+            <div style={{padding:'6px 14px',background:'var(--bg1)',borderTop:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+              <span style={{fontSize:9,color:'var(--text3)',fontFamily:'var(--sans)',textTransform:'uppercase',letterSpacing:'.08em'}}>
+                {livePreview?'Auto-updates as you type':'Manual mode — hit Run or Reload'}
+              </span>
+              <button onPointerDown={()=>setLivePreview(v=>!v)} style={{marginLeft:'auto',padding:'3px 10px',borderRadius:6,background:livePreview?'var(--nglow)':'var(--bg3)',color:livePreview?'var(--neon)':'var(--text2)',border:`1px solid ${livePreview?'var(--neon)':'var(--border2)'}`,fontSize:10,fontFamily:'var(--sans)',fontWeight:600}}>
+                {livePreview?'Live ON':'Live OFF'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* FILES */}
+        {tab==='files' && (
+          <div style={{flex:1,overflowY:'auto'}}>
+            <div style={{padding:'12px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:13,fontFamily:'var(--sans)',fontWeight:700}}>Project</span>
+              <button onPointerDown={()=>setShowNewFile(v=>!v)} style={{background:'var(--nglow)',color:'var(--neon)',border:'1px solid var(--neon)',borderRadius:8,padding:'5px 12px',fontSize:12,fontFamily:'var(--sans)',fontWeight:600,display:'flex',alignItems:'center',gap:4}}>
+                <I n="add" s={13} c="var(--neon)"/>New File
+              </button>
+            </div>
+            {showNewFile && (
+              <div style={{padding:'10px 12px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',display:'flex',gap:8,animation:'pop .15s ease'}}>
+                <input type="text" placeholder="filename.java / .html / .css / .js" value={newFileName} onChange={e=>setNewFileName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&createFile()} autoFocus style={{flex:1}}/>
+                <button onPointerDown={createFile} style={{background:'var(--neon)',color:'#000',borderRadius:8,padding:'8px 14px',fontFamily:'var(--sans)',fontWeight:800,fontSize:12,flexShrink:0}}>Create</button>
+              </div>
+            )}
+            {fileKeys.map(f=>{
+              const fi=files[f];
+              const isActive=f===activeFile;
+              const langColors={java:'#f0883e',html:'#e34c26',css:'#264de4',js:'#f7df1e'};
+              return (
+                <div key={f} className={`file-row${isActive?' act':''}`} onPointerDown={()=>switchFile(f)}>
+                  <div style={{width:38,height:38,borderRadius:10,background:isActive?'var(--nglow)':'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',border:`1px solid ${isActive?'var(--neon)':'var(--border)'}`,flexShrink:0}}>
+                    <I n={getLangIcon(fi.lang)} s={16}/>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontFamily:'var(--sans)',fontWeight:isActive?700:500,color:isActive?'var(--neon)':'var(--text0)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f}</div>
+                    <div style={{fontSize:10,color:'var(--text3)',fontFamily:'var(--mono)',display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{width:6,height:6,borderRadius:'50%',background:langColors[fi.lang]||'var(--text3)',display:'inline-block'}}/>
+                      {fi.lang} · {fi.code.split('\n').length} lines
+                    </div>
+                  </div>
+                  <I n="chevR" s={14} c="var(--text3)"/>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* TERMINAL */}
+        {tab==='terminal' && (
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+              <div style={{width:7,height:7,borderRadius:'50%',background:'var(--green)',boxShadow:'0 0 6px var(--green)'}}/>
+              <span style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--text2)'}}>bash · /studio-ide/src</span>
+              <button onPointerDown={()=>setTermHistory([])} style={{marginLeft:'auto',background:'none',color:'var(--text3)',fontSize:10,fontFamily:'var(--sans)'}}>clear</button>
+            </div>
+            <div ref={termRef} style={{flex:1,overflowY:'auto',padding:'10px 14px',fontFamily:'var(--mono)',fontSize:12,lineHeight:1.9}}>
+              {termHistory.map((l,i)=>(
+                <div key={i} style={{color:l.startsWith('$')?'var(--neon)':l.startsWith('error')||l.startsWith('bash:')?'var(--red)':'var(--text1)',whiteSpace:'pre-wrap',wordBreak:'break-all'}}>{l}</div>
+              ))}
+            </div>
+            <div style={{borderTop:'1px solid var(--border)',padding:'10px 14px',display:'flex',alignItems:'center',gap:8,background:'var(--bg1)',flexShrink:0}}>
+              <span style={{color:'var(--neon)',fontFamily:'var(--mono)',fontSize:14,fontWeight:600,flexShrink:0}}>$</span>
+              <input type="text" value={termInput} onChange={e=>setTermInput(e.target.value)} onKeyDown={handleTermCmd} placeholder="run | javac | java | ls | help" style={{flex:1,background:'none',border:'none',fontSize:12,padding:0,color:'var(--text0)'}} autoCapitalize="off" autoCorrect="off"/>
+            </div>
+          </div>
+        )}
+
+        {/* SETTINGS */}
+        {tab==='settings' && (
+          <div style={{flex:1,overflowY:'auto'}}>
+            <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)'}}>
+              <div style={{fontSize:14,fontFamily:'var(--sans)',fontWeight:800,color:'var(--text0)'}}>Settings</div>
+              <div style={{fontSize:10,color:'var(--text2)',fontFamily:'var(--sans)',marginTop:2}}>Studio IDE · Mobile</div>
+            </div>
+            <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)'}}>
+              <div style={{fontSize:10,color:'var(--text2)',fontFamily:'var(--sans)',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:10}}>Theme</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                {Object.keys(THEMES).map(t=>(
+                  <button key={t} className={`chip${theme===t?' on':''}`} onPointerDown={()=>setTheme(t)}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div className="sr">
+              <div><div style={{fontSize:13,fontFamily:'var(--sans)',fontWeight:500}}>Font Size</div><div style={{fontSize:10,color:'var(--text2)',fontFamily:'var(--sans)'}}>{fontSize}px</div></div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <button onPointerDown={()=>setFontSize(f=>Math.max(10,f-1))} style={{width:32,height:32,borderRadius:8,background:'var(--bg3)',color:'var(--text0)',fontSize:18,border:'1px solid var(--border2)',display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                <span style={{fontSize:14,fontFamily:'var(--mono)',minWidth:26,textAlign:'center'}}>{fontSize}</span>
+                <button onPointerDown={()=>setFontSize(f=>Math.min(22,f+1))} style={{width:32,height:32,borderRadius:8,background:'var(--bg3)',color:'var(--text0)',fontSize:18,border:'1px solid var(--border2)',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+              </div>
+            </div>
+            {[['Word Wrap','Wrap long lines',wordWrap,()=>setWordWrap(v=>!v)],['Live Preview','Update preview as you type',livePreview,()=>setLivePreview(v=>!v)],['Custom Keyboard','Java symbol row',showKB,()=>setShowKB(v=>!v)]].map(([label,desc,val,fn])=>(
+              <div key={label} className="sr">
+                <div><div style={{fontSize:13,fontFamily:'var(--sans)',fontWeight:500}}>{label}</div><div style={{fontSize:10,color:'var(--text2)',fontFamily:'var(--sans)'}}>{desc}</div></div>
+                <button className="tog" onPointerDown={fn} style={{background:val?'var(--neon)':'var(--bg4)',border:`1px solid ${val?'var(--neon)':'var(--border2)'}`}}>
+                  <div className="knob" style={{left:val?24:4}}/>
+                </button>
+              </div>
+            ))}
+            <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)'}}>
+              <div style={{fontSize:10,color:'var(--text2)',fontFamily:'var(--sans)',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:10}}>Supported Languages</div>
+              {[['☕ Java','.java','Syntax + simulated run'],['⟨⟩ HTML','.html','Live preview in browser'],['# CSS','.css','Live style preview'],['JS JavaScript','.js','Live JS execution preview']].map(([ico,ext,desc])=>(
+                <div key={ext} style={{display:'flex',gap:10,padding:'7px 0',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
+                  <span style={{fontSize:13,minWidth:32,fontFamily:'var(--mono)',color:'var(--neon)'}}>{ico.split(' ')[0]}</span>
+                  <div><div style={{fontSize:12,fontFamily:'var(--mono)',color:'var(--text0)'}}>{ext}</div><div style={{fontSize:10,color:'var(--text3)',fontFamily:'var(--sans)'}}>{desc}</div></div>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'14px 16px'}}>
+              <div style={{fontSize:11,color:'var(--text1)',fontFamily:'var(--sans)',lineHeight:1.8}}>
+                Serve with: <span style={{color:'var(--neon)',fontFamily:'var(--mono)',fontSize:11}}>python3 -m http.server 5173</span><br/>
+                Then open in Chrome on your device.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Status bar ── */}
+      <div style={{height:22,background:'var(--run)',display:'flex',alignItems:'center',padding:'0 12px',gap:10,flexShrink:0}}>
+        <span style={{fontSize:9,color:'#fff',fontFamily:'var(--sans)',fontWeight:800,opacity:.9}}>Studio IDE</span>
+        <span style={{fontSize:9,color:'#fff',fontFamily:'var(--sans)',fontWeight:600,opacity:.65}}>{activeFile}</span>
+        {livePreview&&<div className="badge" style={{background:'rgba(255,255,255,.2)',color:'#fff'}}><div style={{width:5,height:5,borderRadius:'50%',background:'#fff',animation:'pulse 1.2s infinite'}}/>LIVE</div>}
+        <span style={{marginLeft:'auto',fontSize:9,color:'#fff',fontFamily:'var(--sans)',fontWeight:700,opacity:.9}}>
+          {running&&'⏳ Running…'}
+          {!running&&ran&&errs.length===0&&'✓ OK'}
+          {!running&&ran&&errs.length>0&&`✗ ${errs.length} err`}
+        </span>
+      </div>
+
+      {/* ── Bottom nav ── */}
+      <div style={{height:'var(--nav)',background:'var(--bg1)',borderTop:'1px solid var(--border)',display:'flex',alignItems:'stretch',flexShrink:0,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+        {[['editor','code','Editor'],['preview','preview','Preview'],['files','files','Files'],['terminal','terminal','Terminal'],['settings','settings','More']].map(([id,icon,label])=>(
+          <button key={id} className={`nav-btn${tab===id?' active':''}`} onPointerDown={()=>setTab(id)}>
+            <I n={icon} s={19} c={tab===id?'var(--neon)':'var(--text3)'}/>
+            <span>{label}</span>
+            {id==='preview'&&livePreview&&<div style={{position:'absolute',top:6,right:'calc(50% - 14px)',width:5,height:5,borderRadius:'50%',background:'var(--neon)',boxShadow:'0 0 4px var(--neon)',animation:'pulse 1.5s infinite'}}/>}
+            {id==='editor'&&ran&&errs.length>0&&<div style={{position:'absolute',top:6,right:'calc(50% - 14px)',width:5,height:5,borderRadius:'50%',background:'var(--red)'}}/>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

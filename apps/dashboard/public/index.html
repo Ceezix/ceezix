@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DNYF DevOps OS</title>
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    body {
+      background: #0d0d0d;
+      color: #00ff88;
+      font-family: monospace;
+      padding: 20px;
+    }
+
+    h1 { color: #00ffaa; }
+
+    button {
+      background: #111;
+      color: #00ff88;
+      border: 1px solid #00ff88;
+      padding: 10px;
+      margin: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #00ff88;
+      color: #000;
+    }
+
+    #status { margin: 10px 0; }
+
+    #log {
+      margin-top: 20px;
+      background: #111;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #00ff88;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>🧠 DNYF DEVOPS OS</h1>
+
+<div id="status">🔄 Connecting...</div>
+
+<div>
+  <button onclick="send('start')">🚀 Start</button>
+  <button onclick="send('stop')">🛑 Stop</button>
+  <button onclick="send('restart')">🔁 Restart</button>
+  <button onclick="send('status')">📊 Status</button>
+  <button onclick="send('deploy')">📦 Deploy</button>
+  <button onclick="send('clean')">🧹 Clean</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+const TOKEN = "dnyf123";
+
+const socket = io({
+  transports: ["websocket"],
+  auth: { token: TOKEN }
+});
+
+const logBox = document.getElementById("log");
+const statusBox = document.getElementById("status");
+
+function send(action) {
+  statusBox.innerText = "⏳ Running: " + action;
+
+  fetch("/action", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ action, token: TOKEN })
+  })
+  .then(res => res.json())
+  .then(() => {
+    statusBox.innerText = "✅ Done: " + action;
+  })
+  .catch(() => {
+    statusBox.innerText = "❌ Failed: " + action;
+  });
+}
+
+socket.on("connect", () => {
+  statusBox.innerText = "🟢 Connected (Stable)";
+});
+
+socket.on("disconnect", () => {
+  statusBox.innerText = "🔴 Disconnected";
+});
+
+socket.on("connect_error", (err) => {
+  console.error(err.message);
+  statusBox.innerText = "⚠️ Connection error";
+});
+
+socket.on("log", (data) => {
+  logBox.innerHTML += "<div>> " + data + "</div>";
+  logBox.scrollTop = logBox.scrollHeight;
+});
+</script>
+
+</body>
+</html>

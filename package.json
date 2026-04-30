@@ -1,0 +1,13 @@
+{
+  "name": "ceezix",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ceezix Systems Monorepo",
+  "scripts": {
+    "dev": "pnpm --parallel dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "build": "pnpm --recursive build",
+    "start": "pnpm --filter api start"
+  }
+}
