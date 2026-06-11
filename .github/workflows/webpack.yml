@@ -1,36 +1,29 @@
-name: Ceezix NodeJS with Webpack
+name: Ceezix CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version:
-          - 18.x
-          - 20.x
-          - 22.x
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
+          version: 10
 
-      - name: Install Dependencies
-        run: npm ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
 
-      - name: Build Webpack Bundle
-        run: npx webpack
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm test --if-present
